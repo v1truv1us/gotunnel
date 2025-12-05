@@ -1,0 +1,94 @@
+# gotunnel Configuration File
+# This file demonstrates all available configuration options
+
+# Global settings that apply to all tunnels
+global:
+  environment: "development"           # development, staging, production
+  debug: false                        # Enable debug logging
+  no_privilege_check: false           # Skip privilege checking
+  default_http_port: 80              # Default HTTP port
+  default_https_port: 443            # Default HTTPS port
+  certs_dir: "./certs"               # Certificate storage directory
+
+# Tunnel definitions
+tunnels:
+  # Basic HTTP tunnel
+  - domain: "app.local"
+    backend: "http://localhost:3000"
+    https: false
+    labels:
+      app: "frontend"
+      env: "dev"
+
+  # HTTPS tunnel with health check
+  - domain: "api.local"
+    backend: "http://localhost:8080"
+    https: true
+    http_port: 8080                  # Custom HTTP port
+    https_port: 8443                 # Custom HTTPS port
+    health_check:
+      path: "/health"
+      interval: "30s"
+      timeout: "5s"
+      failure_threshold: 3
+    labels:
+      app: "backend"
+      env: "dev"
+
+  # Tunnel with custom backend
+  - domain: "admin.local"
+    backend: "http://localhost:9000"
+    https: true
+    labels:
+      app: "admin"
+      env: "dev"
+
+# Proxy configuration
+proxy:
+  mode: "auto"                       # builtin, nginx, caddy, auto, config, none
+  http_port: 80
+  https_port: 443
+  
+  # External proxy configuration (when mode is nginx or caddy)
+  external:
+    nginx:
+      binary_path: "nginx"
+      config_path: "/etc/nginx/nginx.conf"
+      pid_path: "/var/run/nginx.pid"
+    
+    caddy:
+      binary_path: "caddy"
+      config_path: "/etc/caddy/Caddyfile"
+      pid_path: "/var/run/caddy.pid"
+
+# Logging configuration
+logging:
+  level: "info"                       # debug, info, warn, error
+  format: "text"                      # json, text
+  file: ""                            # Log file path (empty for stdout)
+  rotate: false                       # Enable log rotation
+  max_size: "100MB"                  # Maximum log file size
+  max_files: 3                        # Maximum number of old log files
+
+# Observability configuration
+observability:
+  # Sentry error tracking
+  sentry:
+    dsn: ""                            # Sentry DSN
+    environment: "development"
+    sample_rate: 1.0                   # 0.0 to 1.0
+    enable_performance_monitoring: true
+
+  # Prometheus metrics
+  prometheus:
+    enabled: false                      # Enable metrics collection
+    port: 9090                         # Metrics port
+    path: "/metrics"                    # Metrics path
+
+  # OpenTelemetry tracing
+  opentelemetry:
+    enabled: false                      # Enable distributed tracing
+    service_name: "gotunnel"
+    service_version: "1.0.0"
+    endpoint: ""                        # OTLP endpoint
+    sample_rate: 1.0                   # 0.0 to 1.0
