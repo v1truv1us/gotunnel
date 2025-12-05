@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
+	"github.com/johncferguson/gotunnel/internal/auth"
 	gotunnelErrors "github.com/johncferguson/gotunnel/internal/errors"
 	"gopkg.in/yaml.v3"
 )
@@ -26,6 +28,9 @@ type Config struct {
 	
 	// Observability configuration
 	Observability ObservabilityConfig `yaml:"observability"`
+	
+	// Authentication configuration
+	Auth auth.Config `yaml:"auth"`
 }
 
 // GlobalConfig contains global settings
@@ -222,6 +227,14 @@ type FileSource struct {
 	priority int
 }
 
+// NewFileSource creates a new file source with the given priority
+func NewFileSource(path string, priority int) *FileSource {
+	return &FileSource{
+		Path:     path,
+		priority: priority,
+	}
+}
+
 func (fs *FileSource) Load() (*Config, error) {
 	if fs.Path == "" {
 		return nil, nil
@@ -383,7 +396,7 @@ func (m *Manager) Load() (*Config, error) {
 
 // LoadFromFile loads configuration from a specific file
 func LoadFromFile(path string) (*Config, error) {
-	source := &FileSource{Path: path, priority: 100}
+	source := NewFileSource(path, 100)
 	return source.Load()
 }
 
@@ -599,28 +612,14 @@ func (c *Config) Validate() error {
 	
 	// Validate proxy mode
 	validModes := []string{"builtin", "nginx", "caddy", "auto", "config", "none"}
-	modeValid := false
-	for _, mode := range validModes {
-		if c.Proxy.Mode == mode {
-			modeValid = true
-			break
-		}
-	}
-	if !modeValid {
+	if !slices.Contains(validModes, c.Proxy.Mode) {
 		return gotunnelErrors.ValidationError("proxy_mode", c.Proxy.Mode, 
 			fmt.Sprintf("must be one of: %s", strings.Join(validModes, ", ")))
 	}
 	
 	// Validate log level
 	validLevels := []string{"debug", "info", "warn", "error"}
-	levelValid := false
-	for _, level := range validLevels {
-		if c.Logging.Level == level {
-			levelValid = true
-			break
-		}
-	}
-	if !levelValid {
+	if !slices.Contains(validLevels, c.Logging.Level) {
 		return gotunnelErrors.ValidationError("log_level", c.Logging.Level,
 			fmt.Sprintf("must be one of: %s", strings.Join(validLevels, ", ")))
 	}
