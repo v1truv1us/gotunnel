@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/johncferguson/gotunnel/internal/cert"
+	"github.com/johncferguson/gotunnel/internal/logging"
 	"github.com/johncferguson/gotunnel/internal/tunnel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,12 +75,25 @@ func setupTunnelManagerWithCleanup(t *testing.T) (*tunnel.Manager, func()) {
 	// Create cert manager with temp dir for certs
 	certManager := cert.New(tmpDir)
 
+	// Create logger for testing
+	logger, err := logging.New(logging.DefaultConfig())
+	require.NoError(t, err)
+
 	// Create tunnel manager with temp file for hosts backup
-	manager := tunnel.NewManager(certManager)
+	manager := tunnel.NewManager(certManager, logger)
 	manager.SetHostsBackupDir(filepath.Join(tmpDir, "hosts.bak"))
+	
+	// Create a mock hosts file for testing to avoid permission issues
+	mockHostsFile := filepath.Join(tmpDir, "mock_hosts")
+	err = os.WriteFile(mockHostsFile, []byte("127.0.0.1\tlocalhost\n"), 0644)
+	require.NoError(t, err)
+	
+	// Override the global hosts file variable for testing
+	tunnel.SetHostsFileForTesting(mockHostsFile)
 
 	return manager, func() {
 		// Cleanup
+		tunnel.SetHostsFileForTesting("/etc/hosts") // Restore original
 		os.RemoveAll(tmpDir)
 	}
 }
@@ -228,8 +242,12 @@ func TestTunnelManagement(t *testing.T) {
 	// Create cert manager with temp dir for certs
 	certManager := cert.New(tempDir)
 
+	// Create logger for testing
+	logger, err := logging.New(logging.DefaultConfig())
+	require.NoError(t, err)
+
 	// Create tunnel manager with temp file for hosts backup
-	manager := tunnel.NewManager(certManager)
+	manager := tunnel.NewManager(certManager, logger)
 	manager.SetHostsBackupDir(filepath.Join(tempDir, "hosts.bak"))
 
 	// Test tunnel management operations
@@ -300,7 +318,12 @@ func TestErrorHandling(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	certManager := cert.New(tempDir)
-	manager := tunnel.NewManager(certManager)
+	
+	// Create logger for testing
+	logger, err := logging.New(logging.DefaultConfig())
+	require.NoError(t, err)
+	
+	manager := tunnel.NewManager(certManager, logger)
 	manager.SetHostsBackupDir(filepath.Join(tempDir, "hosts.bak"))
 
 	tests := []struct {

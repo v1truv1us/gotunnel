@@ -387,17 +387,34 @@ func StartTunnel(c *cli.Context) error {
 		slog.Int("port", port),
 	)
 
+	// Get actual tunnel status (might have fallen back from HTTPS to HTTP)
+	tunnels := manager.ListTunnels()
+	actualHTTPS := https
+	if len(tunnels) > 0 {
+		for _, t := range tunnels {
+			if t["domain"].(string) == domain {
+				actualHTTPS = t["https"].(bool)
+				break
+			}
+		}
+	}
+
 	// Print success information
 	fmt.Printf("\nTunnel started successfully!\n")
 	fmt.Printf("Local endpoint: http://localhost:%d\n", port)
-	if https {
+	if actualHTTPS {
 		fmt.Printf("Access your service at: https://%s\n", domain)
 	} else {
 		fmt.Printf("Access your service at: http://%s\n", domain)
 	}
 	fmt.Printf("\nDomain is accessible:\n")
-	fmt.Printf("- Locally via /etc/hosts: https://%s\n", domain)
-	fmt.Printf("- On your network via mDNS: https://%s\n", domain)
+	if actualHTTPS {
+		fmt.Printf("- Locally via /etc/hosts: https://%s\n", domain)
+		fmt.Printf("- On your network via mDNS: https://%s\n", domain)
+	} else {
+		fmt.Printf("- Locally via /etc/hosts: http://%s\n", domain)
+		fmt.Printf("- On your network via mDNS: http://%s\n", domain)
+	}
 
 	// Track tunnel start time for duration calculation
 	startTime := time.Now()

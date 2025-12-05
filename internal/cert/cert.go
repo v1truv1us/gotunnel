@@ -30,6 +30,10 @@ func getCurrentUser() (*user.User, error) {
 	return user.Current()
 }
 
+func (m *CertManager) IsMkcertAvailable() bool {
+	return isMkcertInstalled()
+}
+
 func (m *CertManager) EnsureMkcertInstalled() error {
 	// Check if mkcert is already installed
 	if isMkcertInstalled() {

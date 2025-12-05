@@ -30,6 +30,11 @@ const (
 // For testing purposes - allow overriding the hosts file path
 var hostsFile = defaultHostsFile
 
+// SetHostsFileForTesting allows tests to override the hosts file path
+func SetHostsFileForTesting(path string) {
+	hostsFile = path
+}
+
 type Tunnel struct {
 	Port        int    // Backend target port (where user's app runs)
 	HTTPPort    int    // Tunnel HTTP listen port (default 80)
@@ -210,11 +215,23 @@ func (m *Manager) startTunnelInternal(ctx context.Context, backendPort int, doma
 
 	// Ensure the SSL/TLS certificate is available
 	if https {
-		cert, err := m.certManager.EnsureCert(domain)
-		if err != nil {
-			return fmt.Errorf("failed to ensure certificate: %w", err)
+		// Check if mkcert is available before attempting to generate certificates
+		if !m.certManager.IsMkcertAvailable() {
+			m.logger.Warn("HTTPS requested but mkcert is not available. Falling back to HTTP. Install mkcert for HTTPS support:\n" +
+				"  macOS: brew install mkcert && mkcert -install\n" +
+				"  Linux: Follow instructions at https://github.com/FiloSottile/mkcert#linux")
+			https = false
+			tunnel.HTTPS = false
+		} else {
+			cert, err := m.certManager.EnsureCert(domain)
+			if err != nil {
+				m.logger.Warn("Failed to generate HTTPS certificate. Falling back to HTTP.", "error", err)
+				https = false
+				tunnel.HTTPS = false
+			} else {
+				tunnel.Cert = cert
+			}
 		}
-		tunnel.Cert = cert
 	}
 
 	if err := m.startTunnel(tunnel); err != nil {

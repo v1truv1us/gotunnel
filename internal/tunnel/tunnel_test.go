@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/johncferguson/gotunnel/internal/cert"
+	"github.com/johncferguson/gotunnel/internal/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,8 @@ func setupTestManager(t *testing.T) (*Manager, string, func()) {
 	require.NoError(t, err)
 
 	certManager := cert.New(filepath.Join(tempDir, "certs"))
-	manager := NewManager(certManager)
+	logger, _ := logging.New(logging.DefaultConfig())
+	manager := NewManager(certManager, logger)
 	
 	// Set a temp directory for hosts backup for testing
 	hostsBackupFile := filepath.Join(tempDir, "hosts.backup")
@@ -116,12 +118,19 @@ func TestHTTPSTunnel(t *testing.T) {
 	}
 	defer manager.StopTunnel(ctx, domain)
 
-	// Verify HTTPS tunnel
+	// Verify tunnel (may have fallen back to HTTP if mkcert is not available)
 	manager.mu.RLock()
 	tunnel := manager.tunnels[domain]
 	manager.mu.RUnlock()
-	assert.True(t, tunnel.HTTPS)
-	assert.Equal(t, httpsPort, tunnel.HTTPSPort)
+	
+	// Check if mkcert is available to determine expected behavior
+	if manager.certManager.IsMkcertAvailable() {
+		assert.True(t, tunnel.HTTPS, "Tunnel should be HTTPS when mkcert is available")
+		assert.Equal(t, httpsPort, tunnel.HTTPSPort)
+	} else {
+		assert.False(t, tunnel.HTTPS, "Tunnel should fall back to HTTP when mkcert is not available")
+		assert.Equal(t, httpPort, tunnel.HTTPPort)
+	}
 }
 
 func TestMultipleTunnels(t *testing.T) {
@@ -150,6 +159,41 @@ func TestMultipleTunnels(t *testing.T) {
 	// Verify all tunnels are stopped
 	tunnels = manager.ListTunnels()
 	assert.Len(t, tunnels, 0)
+}
+
+func TestHTTPSFallback(t *testing.T) {
+	manager, _, cleanup := setupTestManager(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	domain := "fallback-test.local"
+	backendPort := 8080
+	httpPort := 8180
+	httpsPort := 8443
+
+	// Start HTTPS tunnel - should fallback to HTTP when mkcert is not available
+	err := manager.StartTunnelWithPorts(ctx, backendPort, domain, true, httpPort, httpsPort)
+	require.NoError(t, err)
+
+	// Verify tunnel was created as HTTP (fallback)
+	manager.mu.RLock()
+	tunnel, exists := manager.tunnels[domain]
+	manager.mu.RUnlock()
+	assert.True(t, exists)
+	assert.False(t, tunnel.HTTPS, "Tunnel should have fallen back to HTTP")
+	assert.Equal(t, backendPort, tunnel.Port)
+	assert.Equal(t, domain, tunnel.Domain)
+	assert.Equal(t, httpPort, tunnel.HTTPPort)
+
+	// Stop tunnel
+	err = manager.StopTunnel(ctx, domain)
+	require.NoError(t, err)
+
+	// Verify tunnel is removed
+	manager.mu.RLock()
+	_, exists = manager.tunnels[domain]
+	manager.mu.RUnlock()
+	assert.False(t, exists)
 }
 
 func TestErrorCases(t *testing.T) {
