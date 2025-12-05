@@ -19,6 +19,7 @@ import (
 
 	"github.com/johncferguson/gotunnel/internal/cert"
 	"github.com/johncferguson/gotunnel/internal/dnsserver"
+	gotunnelErrors "github.com/johncferguson/gotunnel/internal/errors"
 	"github.com/johncferguson/gotunnel/internal/logging"
 	"github.com/johncferguson/gotunnel/internal/proxy"
 )
@@ -235,7 +236,7 @@ func (m *Manager) startTunnelInternal(ctx context.Context, backendPort int, doma
 	}
 
 	if err := m.startTunnel(tunnel); err != nil {
-		return fmt.Errorf("failed to start tunnel: %w", err)
+		return gotunnelErrors.TunnelStartError(domain, err)
 	}
 
 	// Add to internal map for tracking
@@ -259,9 +260,9 @@ func (m *Manager) startTunnelInternal(ctx context.Context, backendPort int, doma
 
 	// Create hosts file backup before first modification (only if not using proxy)
 	if !m.useProxy && len(m.tunnels) == 1 {
-		if err := m.backupHostsFile(); err != nil {
-			return fmt.Errorf("failed to backup hosts file: %w", err)
-		}
+	if err := m.backupHostsFile(); err != nil {
+		return gotunnelErrors.HostsFileError("backup", err)
+	}
 	}
 
 	return nil
@@ -275,7 +276,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 	// Stop all tunnels
 	for domain, tunnel := range m.tunnels {
 		if err := tunnel.stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to stop tunnel %s: %w", domain, err))
+			errs = append(errs, gotunnelErrors.TunnelStartError(domain, err))
 		}
 	}
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/johncferguson/gotunnel/internal/cert"
 	"github.com/johncferguson/gotunnel/internal/dnsserver"
+	gotunnelErrors "github.com/johncferguson/gotunnel/internal/errors"
 	"github.com/johncferguson/gotunnel/internal/logging"
 	"github.com/johncferguson/gotunnel/internal/observability"
 	"github.com/johncferguson/gotunnel/internal/privilege"
@@ -119,13 +120,13 @@ func main() {
 			var err error
 			obsProvider, err = observability.NewProvider(obsConfig)
 			if err != nil {
-				return fmt.Errorf("failed to initialize observability: %w", err)
+				return gotunnelErrors.Wrap(err, gotunnelErrors.ErrCodeConfigLoad, "Failed to initialize observability")
 			}
 
 			// Initialize metrics
 			metrics, err = observability.NewMetrics(obsProvider)
 			if err != nil {
-				return fmt.Errorf("failed to initialize metrics: %w", err)
+				return gotunnelErrors.Wrap(err, gotunnelErrors.ErrCodeConfigLoad, "Failed to initialize metrics")
 			}
 
 			// Create a root context with tracing
@@ -377,9 +378,18 @@ func StartTunnel(c *cli.Context) error {
 	timer.End(err)
 
 	if err != nil {
-		errMsg := fmt.Errorf("failed to start tunnel: %w", err)
 		obsProvider.RecordError(ctx, span, err, "tunnel start failed")
-		return errMsg
+		
+		// Add helpful context if this is a gotunnel error
+		if gotunnelErr, ok := gotunnelErrors.IsGotunnelError(err); ok {
+			fmt.Fprintf(os.Stderr, "\n❌ %s\n", gotunnelErr.Error())
+			if gotunnelErr.Help != "" {
+				fmt.Fprintf(os.Stderr, "\n💡 %s\n", gotunnelErr.Help)
+			}
+			return gotunnelErr
+		}
+		
+		return gotunnelErrors.TunnelCreateError(domain, port, err)
 	}
 
 	obsProvider.Logger().InfoContext(ctx, "Tunnel started successfully",

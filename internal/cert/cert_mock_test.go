@@ -192,5 +192,5 @@ func TestInvalidCertificateHandling(t *testing.T) {
 	cert, err := cm.EnsureCert(domain)
 	assert.Error(t, err)
 	assert.Nil(t, cert)
-	assert.Contains(t, err.Error(), "failed to load existing certificate")
+	assert.Contains(t, err.Error(), "CERT_LOAD")
 }

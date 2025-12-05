@@ -2,13 +2,14 @@ package cert
 
 import (
 	"crypto/tls"
-	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	gotunnelErrors "github.com/johncferguson/gotunnel/internal/errors"
 )
 
 func isMkcertInstalled() bool {
@@ -50,7 +51,7 @@ func (m *CertManager) EnsureMkcertInstalled() error {
 
 	cmdParts := strings.Fields(installCmd)
 	if err := runAsUser(cmdParts[0], cmdParts[1:]...); err != nil {
-		return fmt.Errorf("failed to install mkcert: %w", err)
+		return gotunnelErrors.CertificateError("install", "", err)
 	}
 
 	return nil
@@ -58,7 +59,7 @@ func (m *CertManager) EnsureMkcertInstalled() error {
 
 func (m *CertManager) EnsureCert(domain string) (*tls.Certificate, error) {
 	if err := os.MkdirAll(m.certsDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create certs directory: %w", err)
+		return nil, gotunnelErrors.Wrap(err, gotunnelErrors.ErrCodeFilesystem, "Failed to create certs directory")
 	}
 
 	certFile := filepath.Join(m.certsDir, domain+".pem")
@@ -70,7 +71,7 @@ func (m *CertManager) EnsureCert(domain string) (*tls.Certificate, error) {
 			// Both files exist, load and return the certificate
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 			if err != nil {
-				return nil, fmt.Errorf("failed to load existing certificate: %w", err)
+				return nil, gotunnelErrors.CertificateError("load", domain, err)
 			}
 			return &cert, nil
 		}
@@ -78,13 +79,13 @@ func (m *CertManager) EnsureCert(domain string) (*tls.Certificate, error) {
 
 	// Generate new certificate
 	if err := runAsUser("mkcert", "-cert-file", certFile, "-key-file", keyFile, domain); err != nil {
-		return nil, fmt.Errorf("failed to generate certificate: %w", err)
+		return nil, gotunnelErrors.CertificateError("generate", domain, err)
 	}
 
 	// Load and return the new certificate
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load new certificate: %w", err)
+		return nil, gotunnelErrors.CertificateError("load", domain, err)
 	}
 
 	return &cert, nil
