@@ -109,4 +109,11 @@ go vet ./...                 # Static analysis for potential issues
 ### Build Process
 - Single binary output with no external dependencies
 - Cross-compilation supported for all major platforms
-- Version information embedded during build process
+- Version information embedded during build processThe gotunnel application is running. It shows the help menu with available commands:
+- **start** - Start a new tunnel
+- **stop** - Stop a tunnel  
+- **list** - List active tunnels
+- **stop-all** - Stop all tunnels
+The proxy started on port 8080 since it couldn't bind to port 80 without elevated privileges. To use port 80, you'd need to run with `sudo`.
+Would you like to start a tunnel? For example:
+go run ./cmd/gotunnel start --port 3000 --domain myapp
