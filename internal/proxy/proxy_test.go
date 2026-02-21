@@ -280,12 +280,7 @@ func TestRouteNormalization(t *testing.T) {
 
 // Helper function for tests
 func mustParseInt(s string) int {
-	if s == "80" {
-		return 80
-	} else if s == "443" {
-		return 443
-	}
-	// For test backend ports, parse from the test server URL
+	// For test backend ports, parse from test server URL
 	// This is a simplified parser for test purposes
 	switch s {
 	case "80":

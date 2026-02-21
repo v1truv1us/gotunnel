@@ -10,9 +10,16 @@ import (
 
 func TestCheckPrivileges(t *testing.T) {
 	err := CheckPrivileges()
-	// Since we've disabled privilege checks to allow non-root execution,
-	// CheckPrivileges should always return nil
-	assert.NoError(t, err)
+	// CheckPrivileges now actually checks for required privileges
+	// It should return an error when running without sufficient privileges
+	if HasRootPrivileges() {
+		// If running as root/admin, it should pass
+		assert.NoError(t, err)
+	} else {
+		// If not running with privileges, it should return an error
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "insufficient privileges")
+	}
 }
 
 func TestHasRootPrivileges(t *testing.T) {
@@ -35,8 +42,15 @@ func TestCheckUnixPrivileges(t *testing.T) {
 	}
 
 	err := checkUnixPrivileges()
-	// Since we've disabled privilege checks, this should always return nil
-	assert.NoError(t, err)
+	// checkUnixPrivileges now actually checks for required privileges
+	if os.Geteuid() == 0 {
+		// If running as root, it should pass
+		assert.NoError(t, err)
+	} else {
+		// If not running as root, it should return an error
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "insufficient privileges")
+	}
 }
 
 func TestCheckWindowsPrivileges(t *testing.T) {
@@ -45,8 +59,15 @@ func TestCheckWindowsPrivileges(t *testing.T) {
 	}
 
 	err := checkWindowsPrivileges()
-	// Since we've disabled privilege checks, this should always return nil
-	assert.NoError(t, err)
+	// checkWindowsPrivileges now actually checks for admin privileges
+	if hasWindowsAdminPrivileges() {
+		// If running as admin, it should pass
+		assert.NoError(t, err)
+	} else {
+		// If not running as admin, it should return an error
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "insufficient privileges")
+	}
 }
 
 func TestElevatePrivileges(t *testing.T) {
@@ -72,9 +93,15 @@ func TestPrivilegeChecksIntegration(t *testing.T) {
 	isRoot := HasRootPrivileges()
 	err := CheckPrivileges()
 
-	// Since we've disabled privilege checks, this should always pass
-	assert.NoError(t, err, "Privilege check should always pass now")
-	
-	// Just test that HasRootPrivileges doesn't panic
+	// CheckPrivileges now actually checks for privileges
+	if isRoot {
+		// If running with privileges, CheckPrivileges should pass
+		assert.NoError(t, err, "Privilege check should pass when running with sufficient privileges")
+	} else {
+		// If not running with privileges, CheckPrivileges should fail
+		assert.Error(t, err, "Privilege check should fail when running without sufficient privileges")
+		assert.Contains(t, err.Error(), "insufficient privileges")
+	}
+
 	t.Logf("Has root privileges: %v", isRoot)
 }

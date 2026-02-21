@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -65,6 +66,9 @@ type Manager struct {
 	mu         sync.RWMutex
 	ctx        context.Context
 	cancel     context.CancelFunc
+	
+	// Security middleware
+	securityMiddleware http.Handler
 }
 
 // NewManager creates a new proxy manager
@@ -155,7 +159,17 @@ func (m *Manager) startBuiltInProxy() error {
 		ErrorHandler: m.proxyErrorHandler,
 	}
 
-	// Create HTTP server
+	// Create HTTP server with security middleware
+	handler := &httputil.ReverseProxy{
+		Director: m.proxyDirector,
+		ErrorHandler: m.proxyErrorHandler,
+	}
+	
+	// Apply security middleware if configured
+	if m.securityMiddleware != nil {
+		handler = m.securityMiddleware.WrapHandler(handler)
+	}
+	
 	m.server = &http.Server{
 		Addr:              fmt.Sprintf(":%d", httpPort),
 		Handler:           handler,
@@ -265,10 +279,7 @@ func (m *Manager) AddRoute(route *Route) error {
 	defer m.mu.Unlock()
 
 	// Normalize domain (remove .local suffix if present for storage)
-	domain := route.Domain
-	if strings.HasSuffix(domain, ".local") {
-		domain = strings.TrimSuffix(domain, ".local")
-	}
+	domain := strings.TrimSuffix(route.Domain, ".local")
 
 	m.routes[domain+".local"] = route
 	m.routes[domain] = route // Support both with and without .local
@@ -299,14 +310,16 @@ func (m *Manager) ListRoutes() map[string]*Route {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	routes := make(map[string]*Route)
-	for k, v := range m.routes {
-		routes[k] = v
-	}
+	routes := maps.Clone(m.routes)
 	return routes
 }
 
-// Stop shuts down the proxy system
+// SetSecurityMiddleware sets the security middleware for the proxy
+func (m *Manager) SetSecurityMiddleware(middleware http.Handler) {
+	m.securityMiddleware = middleware
+}
+
+// Stop shuts down proxy system
 func (m *Manager) Stop() error {
 	m.cancel()
 

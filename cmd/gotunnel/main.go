@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/johncferguson/gotunnel/internal/cert"
+	"github.com/johncferguson/gotunnel/internal/config"
 	"github.com/johncferguson/gotunnel/internal/dnsserver"
 	gotunnelErrors "github.com/johncferguson/gotunnel/internal/errors"
 	"github.com/johncferguson/gotunnel/internal/logging"
@@ -23,21 +25,52 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// Build-time variables (set by ldflags)
 var (
-	version = "dev"
-	commit  = "unknown"
-	date    = "unknown"
-)
-
-var (
-	manager      *tunnel.Manager
-	obsProvider  *observability.Provider
-	metrics      *observability.Metrics
+	version   = "dev"
+	commit    = "unknown"
+	date      = "unknown"
+	
+	// Global instances
+	obsProvider *observability.Provider
+	metrics     *observability.Metrics
+	manager     *tunnel.Manager
 	proxyManager *proxy.Manager
 )
 
+// loadConfig loads configuration from file and environment
+func loadConfig() (*config.Config, error) {
+	// Create configuration manager
+	manager := config.NewManager()
+	
+	// Add file source if config file exists
+	if configFile := config.FindConfigFile(); configFile != "" {
+		manager.AddSource(config.NewFileSource(configFile, 100))
+	}
+	
+	// Add environment source
+	manager.AddSource(&config.EnvSource{Prefix: "GOTUNNEL_"})
+	
+	// Load and merge configuration
+	cfg, err := manager.Load()
+	if err != nil {
+		return nil, gotunnelErrors.Wrap(err, gotunnelErrors.ErrCodeConfigLoad, "Failed to load configuration")
+	}
+	
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	
+	return cfg, nil
+}
+
 func main() {
+	// Load configuration
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+	
 	app := &cli.App{
 		Name:    "gotunnel",
 		Usage:   "Create secure local tunnels for development",
@@ -85,7 +118,7 @@ func main() {
 			},
 		},
 		Before: func(c *cli.Context) error {
-			// Configure logging
+			// Configure logging based on config and CLI flags
 			logConfig := &logging.Config{
 				Level:      logging.LevelInfo,
 				Format:     logging.FormatText,
@@ -94,7 +127,19 @@ func main() {
 				TimeFormat: time.RFC3339,
 			}
 			
-			if c.Bool("debug") {
+			// Override with config file settings
+			if cfg.Logging.Level != "" {
+				logConfig.Level = logging.LogLevel(cfg.Logging.Level)
+			}
+			if cfg.Logging.Format != "" {
+				logConfig.Format = logging.LogFormat(cfg.Logging.Format)
+			}
+			if cfg.Logging.File != "" {
+				logConfig.Output = cfg.Logging.File
+			}
+			
+			// CLI debug flag overrides everything
+			if c.Bool("debug") || cfg.Global.Debug {
 				logConfig.Level = logging.LevelDebug
 				logConfig.AddSource = true
 			}
@@ -108,8 +153,19 @@ func main() {
 				TracesSampleRate: 1.0,
 				LogLevel:         slog.LevelInfo,
 				LogFormat:        "text",
-				Debug:            c.Bool("debug"),
+				Debug:            c.Bool("debug") || cfg.Global.Debug,
 				Logging:          logConfig,
+			}
+
+			// Override with config file observability settings
+			if cfg.Observability.Sentry != nil {
+				if cfg.Observability.Sentry.Environment != "" {
+					obsConfig.Environment = cfg.Observability.Sentry.Environment
+				}
+				if cfg.Observability.Sentry.DSN != "" {
+					obsConfig.SentryDSN = cfg.Observability.Sentry.DSN
+				}
+				obsConfig.TracesSampleRate = cfg.Observability.Sentry.SampleRate
 			}
 
 			if obsConfig.Debug {
@@ -139,52 +195,74 @@ func main() {
 				"environment", obsConfig.Environment,
 			)
 
-			if !c.Bool("no-privilege-check") {
+			if !c.Bool("no-privilege-check") && !cfg.Global.NoPrivilegeCheck {
 				if err := privilege.CheckPrivileges(); err != nil {
 					metrics.RecordError(ctx, "privilege_check", "startup", err)
+					// Provide helpful guidance for privilege issues
+					fmt.Fprintf(os.Stderr, "\n❌ %s\n", err.Error())
+					fmt.Fprintf(os.Stderr, "\n💡 Solutions:\n")
+					if runtime.GOOS == "windows" {
+						fmt.Fprintf(os.Stderr, "   • Run as Administrator: Right-click > 'Run as administrator'\n")
+						fmt.Fprintf(os.Stderr, "   • Use --no-privilege-check to skip privilege checks (limited functionality)\n")
+						fmt.Fprintf(os.Stderr, "   • Configure proxy mode for non-admin usage\n")
+					} else {
+						fmt.Fprintf(os.Stderr, "   • Run with sudo: sudo gotunnel ...\n")
+						fmt.Fprintf(os.Stderr, "   • Use --no-privilege-check to skip privilege checks (limited functionality)\n")
+						fmt.Fprintf(os.Stderr, "   • Configure proxy mode for non-root usage\n")
+					}
+					fmt.Fprintf(os.Stderr, "\n📖 See documentation: https://github.com/johncferguson/gotunnel\n")
 					return err
 				}
 			}
 
 			// Create cert manager
-			certManager := cert.New("./certs")
+			certsDir := cfg.Global.CertsDir
+			if certsDir == "" {
+				certsDir = "./certs"
+			}
+			certManager := cert.New(certsDir)
 			
 			// Initialize proxy if requested
-			proxyModeStr := c.String("proxy")
 			var useProxy bool
+			proxyConfig := proxy.ProxyConfig{
+				Mode:       proxy.ProxyMode(cfg.Proxy.Mode),
+				HTTPPort:   cfg.Proxy.HTTPPort,
+				HTTPSPort:  cfg.Proxy.HTTPSPort,
+			}
 			
-			if proxyModeStr != "none" {
-				proxyConfig := proxy.ProxyConfig{
-					Mode:        proxy.ProxyMode(proxyModeStr),
-					HTTPPort:    c.Int("proxy-http-port"),
-					HTTPSPort:   c.Int("proxy-https-port"),
-					AutoInstall: false, // Don't auto-install external tools
-				}
+			// Override with CLI flags if provided
+			if c.String("proxy") != "auto" {
+				proxyConfig.Mode = proxy.ProxyMode(c.String("proxy"))
+			}
+			if c.Int("proxy-http-port") != 80 {
+				proxyConfig.HTTPPort = c.Int("proxy-http-port")
+			}
+			if c.Int("proxy-https-port") != 443 {
+				proxyConfig.HTTPSPort = c.Int("proxy-https-port")
+			}
 				
-				// Auto-detect best proxy if mode is "auto"
-				if proxyConfig.Mode == proxy.AutoProxy {
-					available := proxy.DetectAvailableProxies()
-					if len(available) > 0 {
-						// Prefer builtin for reliability in enterprise environments  
-						proxyConfig.Type = proxy.BuiltInProxyType
-						proxyConfig.Mode = proxy.BuiltInProxy
-						obsProvider.Logger().InfoContext(ctx, "Auto-selected built-in proxy for maximum compatibility")
-					} else {
-						proxyConfig.Mode = proxy.NoProxy
-						obsProvider.Logger().WarnContext(ctx, "No proxy available, disabling proxy mode")
-					}
+			// Auto-detect best proxy if mode is "auto"
+			if proxyConfig.Mode == proxy.AutoProxy {
+				available := proxy.DetectAvailableProxies()
+				if len(available) > 0 {
+					// Prefer builtin for reliability in enterprise environments  
+					proxyConfig.Mode = proxy.BuiltInProxy
+					obsProvider.Logger().InfoContext(ctx, "Auto-selected built-in proxy for maximum compatibility")
+				} else {
+					proxyConfig.Mode = proxy.NoProxy
+					obsProvider.Logger().WarnContext(ctx, "No proxy available, disabling proxy mode")
 				}
+			}
 				
-				if proxyConfig.Mode != proxy.NoProxy {
-					proxyManager = proxy.NewManager(proxyConfig)
-					useProxy = true
-					
-					obsProvider.Logger().InfoContext(ctx, "Proxy initialized",
-						slog.String("mode", string(proxyConfig.Mode)),
-						slog.Int("http_port", proxyConfig.HTTPPort),
-						slog.Int("https_port", proxyConfig.HTTPSPort),
-					)
-				}
+			if proxyConfig.Mode != proxy.NoProxy {
+				proxyManager = proxy.NewManager(proxyConfig)
+				useProxy = true
+				
+				obsProvider.Logger().InfoContext(ctx, "Proxy initialized",
+					slog.String("mode", string(proxyConfig.Mode)),
+					slog.Int("http_port", proxyConfig.HTTPPort),
+					slog.Int("https_port", proxyConfig.HTTPSPort),
+				)
 			}
 			
 			// Create tunnel manager with proxy integration

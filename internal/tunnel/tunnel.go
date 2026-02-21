@@ -4,10 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
-	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -116,9 +113,9 @@ func (m *Manager) restoreHostsFile() error {
 	}
 
 	// Clean up backup file
-	if err := os.Remove(m.hostsBackup); err != nil {
-		log.Printf("Warning: Failed to remove backup file: %v", err)
-	}
+		if err := os.Remove(m.hostsBackup); err != nil {
+			m.logger.Warn("Failed to remove backup file", "error", err)
+		}
 
 	return nil
 }
@@ -142,7 +139,7 @@ func (m *Manager) StartTunnelWithPorts(ctx context.Context, backendPort int, dom
 	)
 
 	startTime := time.Now()
-	err := m.startTunnelInternal(ctx, backendPort, domain, https, httpPort, httpsPort)
+	err := m.startTunnelInternal(backendPort, domain, https, httpPort, httpsPort)
 	
 	if err != nil {
 		m.logger.WithContext(ctx).TunnelError(domain, err, map[string]any{
@@ -161,7 +158,7 @@ func (m *Manager) StartTunnel(ctx context.Context, backendPort int, domain strin
 	return m.StartTunnelWithPorts(ctx, backendPort, domain, https, 80, httpsPort)
 }
 
-func (m *Manager) startTunnelInternal(ctx context.Context, backendPort int, domain string, https bool, httpPort, httpsPort int) error {
+func (m *Manager) startTunnelInternal(backendPort int, domain string, https bool, httpPort, httpsPort int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -194,8 +191,11 @@ func (m *Manager) startTunnelInternal(ctx context.Context, backendPort int, doma
 		tunnelHTTPPort = 9080 + len(m.tunnels)  // Dynamic port allocation  
 		tunnelHTTPSPort = 9443 + len(m.tunnels)
 		
-		log.Printf("Using proxy mode: tunnel will run on ports %d/%d, accessible via proxy on %d/%d", 
-			tunnelHTTPPort, tunnelHTTPSPort, httpPort, httpsPort)
+		m.logger.Info("Using proxy mode", 
+			"tunnel_http_port", tunnelHTTPPort,
+			"tunnel_https_port", tunnelHTTPSPort,
+			"proxy_http_port", httpPort,
+			"proxy_https_port", httpsPort)
 	}
 
 	// Convert domain to .local if not already
@@ -252,9 +252,11 @@ func (m *Manager) startTunnelInternal(ctx context.Context, backendPort int, doma
 		}
 		
 		if err := m.proxyManager.AddRoute(route); err != nil {
-			log.Printf("Warning: Failed to register proxy route: %v", err)
+			m.logger.Warn("Failed to register proxy route", "error", err)
 		} else {
-			log.Printf("✅ Registered proxy route: %s -> 127.0.0.1:%d", domain, tunnel.HTTPPort)
+			m.logger.Info("Registered proxy route", 
+				"domain", domain,
+				"target", "127.0.0.1:"+fmt.Sprintf("%d", tunnel.HTTPPort))
 		}
 	}
 
@@ -313,16 +315,16 @@ func (m *Manager) StopTunnel(ctx context.Context, domain string) error {
 	// Remove from hosts file (only if not using proxy mode)
 	if !m.useProxy {
 		if err := removeFromHostsFile(domain); err != nil {
-			log.Printf("Warning: Failed to remove from hosts file: %v", err)
+			m.logger.Warn("Failed to remove from hosts file", "error", err)
 		}
 	}
 
 	// Remove from proxy if using proxy mode
 	if m.useProxy && m.proxyManager != nil {
 		if err := m.proxyManager.RemoveRoute(domain); err != nil {
-			log.Printf("Warning: Failed to remove proxy route: %v", err)
+			m.logger.Warn("Failed to remove proxy route", "error", err)
 		} else {
-			log.Printf("🗑️  Removed proxy route: %s", domain)
+			m.logger.Info("Removed proxy route", "domain", domain)
 		}
 	}
 
@@ -362,13 +364,13 @@ func (t *Tunnel) stop(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) ListTunnels() []map[string]interface{} {
+func (m *Manager) ListTunnels() []map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	tunnelList := make([]map[string]interface{}, 0, len(m.tunnels))
+	tunnelList := make([]map[string]any, 0, len(m.tunnels))
 	for domain, tunnel := range m.tunnels {
-		tunnelInfo := map[string]interface{}{
+		tunnelInfo := map[string]any{
 			"domain": domain,
 			"port":   tunnel.Port,
 			"https":  tunnel.HTTPS,
@@ -379,31 +381,6 @@ func (m *Manager) ListTunnels() []map[string]interface{} {
 	return tunnelList
 }
 
-func handleConnection(ctx context.Context, clientConn net.Conn, tunnel *Tunnel) {
-	defer clientConn.Close()
-
-	// Connect to the local application (with a timeout)
-	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	localConn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(dialCtx, "tcp", fmt.Sprintf("localhost:%d", tunnel.Port))
-	if err != nil {
-		log.Println("Error connecting to local application:", err)
-		return
-	}
-	defer localConn.Close()
-
-	// Forward traffic (using the context for cancellation)
-	go func() {
-		// Use io.Copy with a context-aware mechanism:
-		if _, err := io.Copy(localConn, clientConn); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("Error copying from client to local app: %v", err)
-		}
-	}()
-
-	if _, err := io.Copy(clientConn, localConn); err != nil && !errors.Is(err, context.Canceled) {
-		log.Printf("Error copying from local app to client: %v", err)
-	}
-}
 
 func (m *Manager) startTunnel(t *Tunnel) error {
 	// Get the machine's network IP for the proxy
@@ -415,9 +392,9 @@ func (m *Manager) startTunnel(t *Tunnel) error {
 		if err := updateHostsFile(t.Domain); err != nil {
 			return fmt.Errorf("failed to update hosts file: %w", err)
 		}
-	} else {
-		log.Printf("Skipping hosts file update (using proxy mode)")
-	}
+		} else {
+			m.logger.Debug("Skipping hosts file update (using proxy mode)")
+		}
 
 	// Register domain with DNS server (use tunnel listen port, not backend port)
 	listenPort := t.HTTPPort
@@ -436,6 +413,10 @@ func (m *Manager) startTunnel(t *Tunnel) error {
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
 			req.Host = target.Host
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			m.logger.Error("Proxy error", "error", err, "url", r.URL.String())
+			http.Error(w, err.Error(), http.StatusBadGateway)
 		},
 	}
 
@@ -494,7 +475,7 @@ func (m *Manager) startTunnel(t *Tunnel) error {
 	serverErrChan := make(chan error, 1)
 	go func() {
 		if err := t.server.Serve(t.listener); err != nil && err != http.ErrServerClosed {
-			log.Printf("Server error: %v", err)
+			m.logger.Error("Server error", "error", err)
 			serverErrChan <- err
 		}
 		close(serverErrChan)
@@ -518,7 +499,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 	defer m.mu.Unlock()
 
 	// Stop each tunnel
-	for domain, _ := range m.tunnels {
+	for domain := range m.tunnels {
 		if err := m.StopTunnel(ctx, domain); err != nil {
 			return fmt.Errorf("error stopping tunnel %s: %w", domain, err)
 		}
@@ -537,7 +518,7 @@ func (m *Manager) Close(ctx context.Context) error {
 
 	// Shutdown DNS server when closing manager
 	if err := dnsserver.Shutdown(); err != nil {
-		log.Printf("Warning: Failed to shutdown DNS server: %v", err)
+		m.logger.Warn("Failed to shutdown DNS server", "error", err)
 	}
 
 	return nil
@@ -603,27 +584,4 @@ func removeFromHostsFile(domain string) error {
 	return nil
 }
 
-// resolveHostname resolves a hostname, using the system DNS for .local domains
-func resolveHostname(hostname string) (string, error) {
-	if strings.HasSuffix(hostname, ".local") {
-		// Resolve using system DNS for .local domains
-		ips, err := net.LookupHost(hostname)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve hostname: %w", err)
-		}
-		if len(ips) > 0 {
-			return ips[0], nil // Return the first IP address
-		}
-		return "", fmt.Errorf("hostname not found in system DNS")
-	} else {
-		// Resolve using system DNS for other domains
-		ips, err := net.LookupHost(hostname)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve hostname: %w", err)
-		}
-		if len(ips) > 0 {
-			return ips[0], nil // Return the first IP address
-		}
-		return "", fmt.Errorf("hostname not found in system DNS")
-	}
-}
+

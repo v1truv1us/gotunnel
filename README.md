@@ -186,34 +186,188 @@ spec:
 
 ### Environment Variables
 
+Environment variables override configuration file settings and use the `GOTUNNEL_` prefix:
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ENVIRONMENT` | Runtime environment | `development` |
-| `SENTRY_DSN` | Sentry error tracking | - |
-| `DEBUG` | Enable debug logging | `false` |
+| `SENTRY_DSN` | Sentry error tracking DSN | - |
+| `DEBUG` | Enable debug mode | `false` |
 | `GOTUNNEL_PROXY` | Proxy mode | `auto` |
 | `GOTUNNEL_PROXY_HTTP_PORT` | HTTP proxy port | `80` |
 | `GOTUNNEL_PROXY_HTTPS_PORT` | HTTPS proxy port | `443` |
+| `GOTUNNEL_GLOBAL_DEBUG` | Global debug flag | `false` |
+| `GOTUNNEL_GLOBAL_NO_PRIVILEGE_CHECK` | Skip privilege check | `false` |
+| `GOTUNNEL_GLOBAL_CERTS_DIR` | Certificate directory | `./certs` |
+| `GOTUNNEL_LOGGING_LEVEL` | Log level | `info` |
+| `GOTUNNEL_LOGGING_FORMAT` | Log format | `text` |
+| `GOTUNNEL_LOGGING_FILE` | Log file path | `stdout` |
+| `GOTUNNEL_OBSERVABILITY_SENTRY_DSN` | Sentry DSN | - |
+| `GOTUNNEL_OBSERVABILITY_SENTRY_ENVIRONMENT` | Sentry environment | - |
+| `GOTUNNEL_OBSERVABILITY_PROMETHEUS_ENABLED` | Enable Prometheus | `false` |
+| `GOTUNNEL_OBSERVABILITY_PROMETHEUS_PORT` | Prometheus port | `9090` |
+
+**Example with Environment Variables:**
+```bash
+export GOTUNNEL_GLOBAL_DEBUG=true
+export GOTUNNEL_GLOBAL_NO_PRIVILEGE_CHECK=true
+export GOTUNNEL_PROXY=builtin
+export GOTUNNEL_LOGGING_LEVEL=debug
+export GOTUNNEL_LOGGING_FORMAT=json
+
+gotunnel start --port 3000 --domain myapp
+```
 
 ### Configuration File
 
-Create `~/.config/gotunnel/config.yaml`:
+gotunnel looks for configuration files in these locations (in order):
+- `./gotunnel.yaml` or `./gotunnel.yml`
+- `./config/gotunnel.yaml` or `./config/gotunnel.yml`
+- `~/.gotunnel/gotunnel.yaml` or `~/.gotunnel/gotunnel.yml`
+- `/etc/gotunnel/gotunnel.yaml` or `/etc/gotunnel/gotunnel.yml`
+
+#### Complete Configuration Example
 
 ```yaml
+# Global settings
+global:
+  environment: "development"          # development, staging, production
+  debug: true                       # Enable debug mode
+  no_privilege_check: true           # Skip privilege check
+  default_http_port: 8080           # Default HTTP port
+  default_https_port: 8443          # Default HTTPS port
+  certs_dir: "./certs"              # Certificate storage directory
+
+# Proxy configuration
+proxy:
+  mode: "builtin"                   # builtin, nginx, caddy, auto, config, none
+  http_port: 8080                   # HTTP proxy port
+  https_port: 8443                  # HTTPS proxy port
+  external:
+    nginx:
+      binary_path: "/usr/sbin/nginx"
+      config_path: "/etc/nginx/nginx.conf"
+      pid_path: "/var/run/nginx.pid"
+    caddy:
+      binary_path: "/usr/bin/caddy"
+      config_path: "/etc/caddy/Caddyfile"
+      pid_path: "/var/run/caddy.pid"
+
+# Logging configuration
+logging:
+  level: "debug"                    # debug, info, warn, error
+  format: "json"                    # json, text
+  file: "gotunnel.log"              # Log file path (empty = stdout)
+  rotate: true                      # Enable log rotation
+  max_size: "100MB"                 # Max file size before rotation
+  max_files: 3                      # Number of old log files to keep
+
+# Observability configuration
+observability:
+  sentry:
+    dsn: "${SENTRY_DSN}"            # Sentry DSN from environment
+    environment: "development"         # Sentry environment tag
+    sample_rate: 1.0                # Error sampling rate (0.0-1.0)
+    enable_performance_monitoring: true
+  prometheus:
+    enabled: true                    # Enable Prometheus metrics
+    port: 9090                      # Metrics port
+    path: "/metrics"                 # Metrics endpoint
+  opentelemetry:
+    enabled: false                   # Enable OpenTelemetry tracing
+    service_name: "gotunnel"
+    service_version: "1.0.0"
+    endpoint: ""                     # OTLP endpoint
+    sample_rate: 1.0                # Trace sampling rate
+
+# Predefined tunnels (optional)
+tunnels:
+  - domain: "web.local"
+    backend: "http://localhost:3000"
+    https: true
+    http_port: 8080
+    https_port: 8443
+    health_check:
+      path: "/health"
+      interval: "30s"
+      timeout: "5s"
+      failure_threshold: 3
+    labels:
+      environment: "dev"
+      service: "frontend"
+  
+  - domain: "api.local"
+    backend: "http://localhost:8080"
+    https: true
+    labels:
+      environment: "dev"
+      service: "backend"
+```
+
+#### Quick Configuration Examples
+
+**Development Setup:**
+```yaml
+global:
+  debug: true
+  no_privilege_check: true
+
 proxy:
   mode: "builtin"
   http_port: 8080
   https_port: 8443
 
+logging:
+  level: "debug"
+  format: "text"
+```
+
+**Production Setup:**
+```yaml
+global:
+  environment: "production"
+  debug: false
+
+proxy:
+  mode: "nginx"
+  http_port: 80
+  https_port: 443
+
+logging:
+  level: "info"
+  format: "json"
+  file: "/var/log/gotunnel/app.log"
+  rotate: true
+
 observability:
   sentry:
     dsn: "${SENTRY_DSN}"
-  logging:
-    level: "info"
-  tracing:
+    environment: "production"
+    sample_rate: 0.1
+  prometheus:
     enabled: true
-    sample_rate: 1.0
+    port: 9090
 ```
+
+**Corporate Environment:**
+```yaml
+global:
+  no_privilege_check: true
+  default_http_port: 8080
+  default_https_port: 8443
+
+proxy:
+  mode: "builtin"  # Avoid external dependencies
+  http_port: 8080
+  https_port: 8443
+
+logging:
+  level: "info"
+  format: "json"
+  file: "gotunnel.log"
+```
+
+📖 **For complete configuration reference, see [Configuration Guide](docs/CONFIGURATION.md)**
 
 ## 📊 Observability
 
@@ -276,36 +430,219 @@ gotunnel stop-all                            # Stop all tunnels
 
 ### Common Issues
 
-**"Permission denied" on ports 80/443:**
-```bash
-# Use non-privileged ports
-gotunnel --proxy-http-port 8080 --proxy-https-port 8443 start --port 3000 --domain myapp
+**❌ "insufficient privileges: cannot bind to port 80"**
+```
+💡 Solutions:
+   • Run with sudo: sudo gotunnel ...
+   • Use --no-privilege-check to skip privilege checks (limited functionality)
+   • Configure proxy mode for non-root usage: gotunnel --proxy=builtin --no-privilege-check
+   • Use custom ports: gotunnel --proxy-http-port 8080 --proxy-https-port 8443
 ```
 
-**"Domain not accessible":**
+**❌ "TUNNEL_START: Failed to start tunnel (caused by: failed to update hosts file)"**
+```
+💡 Solutions:
+   • Run with elevated privileges: sudo gotunnel ...
+   • Use proxy mode: gotunnel --proxy=builtin --no-privilege-check
+   • Check file permissions: ls -la /etc/hosts
+   • Use configuration file instead of CLI flags
+```
+
+**❌ "unsupported proxy mode: invalid"**
+```
+💡 Valid proxy modes: builtin, nginx, caddy, auto, config, none
+   • Use --proxy=builtin for built-in proxy (recommended)
+   • Use --proxy=auto for automatic detection
+   • Check configuration file syntax
+```
+
+**❌ "mkcert is not available. Falling back to HTTP"**
+```
+💡 HTTPS requires mkcert for certificate generation:
+   • macOS: brew install mkcert && mkcert -install
+   • Linux: Follow https://github.com/FiloSottile/mkcert#linux
+   • Windows: choco install mkcert
+   • Or use HTTP only: --https=false
+```
+
+**❌ "Domain not accessible"**
 ```bash
-# Check /etc/hosts
+# Check /etc/hosts (requires root)
 cat /etc/hosts | grep myapp.local
 
 # Check DNS resolution
 dig myapp.local
 nslookup myapp.local
+
+# Check proxy routes (if using proxy mode)
+curl http://localhost:8080  # Default proxy port
 ```
 
-**Corporate proxy issues:**
+**❌ "Configuration file not found"**
 ```bash
-# Disable proxy auto-detection
-gotunnel --proxy=builtin --no-privilege-check start --port 3000 --domain myapp
+# Check standard locations:
+ls -la gotunnel.yaml gotunnel.yml
+ls -la config/gotunnel.yaml
+ls -la ~/.gotunnel/gotunnel.yaml
+ls -la /etc/gotunnel/gotunnel.yaml
+
+# Validate YAML syntax:
+python3 -c "import yaml; yaml.safe_load(open('gotunnel.yaml'))"
 ```
 
-### Debug Mode
+**❌ "Connection refused" or "No route to host"**
+```bash
+# Check if backend service is running
+curl http://localhost:3000  # Or your backend port
+
+# Check firewall settings
+sudo ufw status  # Linux
+sudo pfctl -s rules  # macOS
+
+# Verify tunnel is active
+gotunnel list
+```
+
+### Configuration Troubleshooting
+
+**Invalid configuration file:**
+```bash
+# Test configuration loading
+gotunnel --debug --no-privilege-check list 2>&1 | head -10
+
+# Validate specific config file
+go run -c 'package main; import "github.com/johncferguson/gotunnel/internal/config"; func main() { cfg, err := config.LoadFromFile("gotunnel.yaml"); if err != nil { panic(err) }; println("Config loaded successfully") }'
+```
+
+**Environment variables not working:**
+```bash
+# Check environment variables
+env | grep GOTUNNEL_
+
+# Test with explicit values
+GOTUNNEL_LOGGING_LEVEL=debug GOTUNNEL_PROXY=builtin gotunnel --no-privilege-check list
+```
+
+### Debug Mode & Observability
 
 ```bash
 # Enable debug logging
 gotunnel --debug start --port 3000 --domain myapp
 
-# Check observability
+# Check metrics (if enabled)
 curl http://localhost:9090/metrics
+
+# View structured logs
+tail -f gotunnel.log  # If file logging is configured
+
+# Test connectivity
+curl -v http://myapp.local  # Should route through tunnel
+curl -v https://myapp.local  # HTTPS (if certificates available)
+```
+
+### Network Diagnostics
+
+**Check tunnel routing:**
+```bash
+# Test direct tunnel access
+curl http://localhost:9080  # Default tunnel port in proxy mode
+
+# Test DNS resolution
+nslookup myapp.local
+
+# Check active connections
+netstat -tlnp | grep :80
+netstat -tlnp | grep :443
+```
+
+**Firewall issues:**
+```bash
+# Linux (ufw)
+sudo ufw status
+sudo ufw allow 80
+sudo ufw allow 443
+
+# macOS (pf)
+sudo pfctl -s rules
+
+# Windows (firewall)
+netsh advfirewall firewall show rule name=all
+```
+
+### Platform-Specific Issues
+
+**macOS:**
+```bash
+# Certificate trust issues
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/.gotunnel/certs/rootCA.pem
+
+# DNS resolution issues
+sudo killall -HUP mDNSResponder
+```
+
+**Windows:**
+```bash
+# Run as Administrator
+# Right-click > Run as administrator
+
+# Certificate installation
+certlm.msc  # Manage computer certificates
+# Import rootCA.pem to Trusted Root Certification Authorities
+```
+
+**Linux:**
+```bash
+# SELinux issues
+sudo setsebool -P httpd_can_network_connect 1
+
+# AppArmor issues
+sudo apparmor_status
+sudo aa-complain /usr/bin/gotunnel  # If confined
+```
+
+### Advanced Configuration
+
+**Multiple tunnels:**
+```yaml
+# gotunnel.yaml
+proxy:
+  mode: "builtin"
+  http_port: 80
+  https_port: 443
+
+tunnels:
+  - domain: "frontend"
+    backend: "http://localhost:3000"
+    https: true
+  - domain: "api"
+    backend: "http://localhost:8080"
+    https: true
+  - domain: "admin"
+    backend: "http://localhost:4000"
+    https: false
+```
+
+**Enterprise setup:**
+```yaml
+# gotunnel.yaml
+global:
+  environment: "production"
+  no_privilege_check: true
+
+proxy:
+  mode: "builtin"
+  http_port: 8080
+  https_port: 8443
+
+logging:
+  level: "info"
+  format: "json"
+  file: "/var/log/gotunnel/app.log"
+
+observability:
+  sentry:
+    dsn: "${SENTRY_DSN}"
+    environment: "production"
 ```
 
 ### System Service
@@ -326,6 +663,14 @@ sudo journalctl -u gotunnel -f
 # Install via Homebrew (includes service)
 brew services start gotunnel
 brew services stop gotunnel
+```
+
+**Windows Service:**
+```powershell
+# Install as Windows service (requires NSSM or similar)
+nssm install gotunnel "C:\path\to\gotunnel.exe"
+nssm set gotunnel AppParameters "start --config C:\path\to\config.yaml"
+nssm start gotunnel
 ```
 
 ## 🧪 Development

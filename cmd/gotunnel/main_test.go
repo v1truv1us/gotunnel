@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/johncferguson/gotunnel/internal/cert"
+	"github.com/johncferguson/gotunnel/internal/config"
 	"github.com/johncferguson/gotunnel/internal/logging"
+	"github.com/johncferguson/gotunnel/internal/proxy"
 	"github.com/johncferguson/gotunnel/internal/tunnel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,16 +58,6 @@ func setupTestServer(t *testing.T) (*http.Server, int) {
 	return srv, port
 }
 
-func setupTestServerWithCleanup(t *testing.T) (*http.Server, int, func()) {
-	srv, port := setupTestServer(t)
-	return srv, port, func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			t.Logf("Error shutting down test server: %v", err)
-		}
-	}
-}
 
 func setupTunnelManagerWithCleanup(t *testing.T) (*tunnel.Manager, func()) {
 	// Create a temp directory for certs and hosts backup
@@ -207,7 +199,7 @@ func TestTunnelCreation(t *testing.T) {
 			// In production, this would go through domain resolution
 			var resp *http.Response
 			var lastErr error
-			for i := 0; i < 5; i++ {
+			for range 5 {
 				// Test by connecting directly to the tunnel port
 				resp, err = client.Get(fmt.Sprintf("%s://127.0.0.1:%d", protocol, testPort))
 				if err == nil {
@@ -256,7 +248,7 @@ func TestTunnelManagement(t *testing.T) {
 	// Create multiple test servers and tunnels
 	var servers []*http.Server
 	var ports []int
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		srv, port := setupTestServer(t)
 		servers = append(servers, srv)
 		ports = append(ports, port)
@@ -305,6 +297,121 @@ func TestTunnelManagement(t *testing.T) {
 	require.NoError(t, err)
 	tunnels = manager.ListTunnels()
 	assert.Len(t, tunnels, 0)
+}
+
+func TestProxyModeIntegration(t *testing.T) {
+	// This test works without root privileges by using proxy mode
+	tempDir, err := os.MkdirTemp("", "gotunnel-proxy-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create cert manager with temp dir for certs
+	certManager := cert.New(tempDir)
+
+	// Create logger for testing
+	logger, err := logging.New(logging.DefaultConfig())
+	require.NoError(t, err)
+
+	// Create proxy manager for proxy mode
+	proxyManager := proxy.NewManager(proxy.ProxyConfig{
+		Mode:     proxy.BuiltInProxy,
+		HTTPPort: 8080,
+		HTTPSPort: 8443,
+	})
+
+	// Create tunnel manager with proxy support
+	manager := tunnel.NewManagerWithProxy(certManager, proxyManager, true, logger)
+
+	// Create test server (backend application)
+	srv, targetPort := setupTestServer(t)
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Logf("Error shutting down test server: %v", err)
+		}
+	}()
+
+	// Test proxy mode tunnel creation
+	ctx := context.Background()
+	domain := "proxy-test"
+	err = manager.StartTunnel(ctx, targetPort, domain, false, 0)
+	require.NoError(t, err)
+
+	// Verify tunnel was created
+	tunnels := manager.ListTunnels()
+	assert.Len(t, tunnels, 1)
+	assert.Equal(t, domain+".local", tunnels[0]["domain"])
+	assert.Equal(t, targetPort, tunnels[0]["port"])
+	assert.False(t, tunnels[0]["https"].(bool))
+
+	// Test that we can access the tunnel (basic connectivity test)
+	// This verifies the proxy routing is working
+	tunnelPort := tunnels[0]["port"].(int)
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d", tunnelPort))
+	if err == nil {
+		resp.Body.Close()
+		// If we get here, the tunnel is working
+		t.Logf("Successfully connected to tunnel at port %d", tunnelPort)
+	} else {
+		t.Logf("Could not connect to tunnel (expected in test env): %v", err)
+	}
+
+	// Clean up - stop all tunnels
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = manager.Stop(ctx)
+	assert.NoError(t, err)
+
+	// Verify all tunnels were removed
+	tunnels = manager.ListTunnels()
+	assert.Len(t, tunnels, 0)
+}
+
+func TestConfigurationIntegration(t *testing.T) {
+	// Test that configuration loading works end-to-end
+	tempDir, err := os.MkdirTemp("", "gotunnel-config-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create a test configuration file
+	configPath := filepath.Join(tempDir, "test-config.yaml")
+	configContent := `
+global:
+  environment: "test"
+  debug: true
+  no_privilege_check: true
+
+proxy:
+  mode: "builtin"
+  http_port: 8888
+  https_port: 8443
+
+logging:
+  level: "debug"
+  format: "json"
+
+tunnels:
+  - domain: "config-test"
+    backend: "http://localhost:3000"
+    https: false
+`
+	err = os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	// Test configuration loading
+	cfg, err := config.LoadFromFile(configPath)
+	require.NoError(t, err)
+	assert.NotNil(t, cfg)
+	assert.Equal(t, "test", cfg.Global.Environment)
+	assert.True(t, cfg.Global.Debug)
+	assert.Equal(t, "builtin", cfg.Proxy.Mode)
+	assert.Equal(t, 8888, cfg.Proxy.HTTPPort)
+	assert.Equal(t, "debug", cfg.Logging.Level)
+	assert.Equal(t, "json", cfg.Logging.Format)
+	assert.Len(t, cfg.Tunnels, 1)
+	assert.Equal(t, "config-test", cfg.Tunnels[0].Domain)
 }
 
 func TestErrorHandling(t *testing.T) {

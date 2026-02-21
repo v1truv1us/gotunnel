@@ -20,6 +20,13 @@ This directory contains comprehensive documentation for the gotunnel project.
   - OpenTelemetry + Sentry observability integration
   - CI/CD pipeline and operational procedures
 
+### Technical Documentation
+- **[CONFIGURATION.md](./CONFIGURATION.md)** - Configuration Guide
+  - Complete configuration reference and examples
+  - Environment variables and file locations
+  - Best practices for different environments
+  - Configuration validation and troubleshooting
+
 ### Development Guidelines
 - **[../CLAUDE.md](../CLAUDE.md)** *(Root Directory)* - Claude Code Development Guidelines
   - Command reference and architecture overview
@@ -48,6 +55,7 @@ This directory contains comprehensive documentation for the gotunnel project.
 | TODO.md | 🔄 Active | Current | Engineering |
 | DEPLOYMENT.md | ✅ Complete | Current | DevOps |
 | CLAUDE.md | ✅ Complete | Current | Engineering |
+| CONFIGURATION.md | ✅ Complete | Current | Engineering |
 
 ## Getting Started
 

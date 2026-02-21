@@ -3,7 +3,6 @@ package proxy
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"text/template"
 )
@@ -204,30 +203,3 @@ func (m *Manager) generateCaddyConfig() error {
 	return nil
 }
 
-// reloadNginx reloads nginx configuration
-func reloadNginx() error {
-	if !commandExists("nginx") {
-		return fmt.Errorf("nginx not found")
-	}
-
-	cmd := exec.Command("nginx", "-s", "reload")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to reload nginx: %w", err)
-	}
-
-	return nil
-}
-
-// reloadCaddy reloads caddy configuration  
-func reloadCaddy() error {
-	if !commandExists("caddy") {
-		return fmt.Errorf("caddy not found")
-	}
-
-	cmd := exec.Command("caddy", "reload")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to reload caddy: %w", err)
-	}
-
-	return nil
-}

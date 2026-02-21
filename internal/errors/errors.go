@@ -61,7 +61,7 @@ type GotunnelError struct {
 	Code      ErrorCode              `json:"code"`
 	Message   string                 `json:"message"`
 	Operation string                 `json:"operation,omitempty"`
-	Context   map[string]interface{} `json:"context,omitempty"`
+	Context   map[string]any `json:"context,omitempty"`
 	Cause     error                  `json:"cause,omitempty"`
 	Help      string                 `json:"help,omitempty"`
 	File      string                 `json:"file,omitempty"`
@@ -114,7 +114,7 @@ func New(code ErrorCode, message string) *GotunnelError {
 	return &GotunnelError{
 		Code:    code,
 		Message: message,
-		Context: make(map[string]interface{}),
+		Context: make(map[string]any),
 	}
 }
 
@@ -131,9 +131,9 @@ func (e *GotunnelError) WithOperation(operation string) *GotunnelError {
 }
 
 // WithContext adds key-value context to the error
-func (e *GotunnelError) WithContext(key string, value interface{}) *GotunnelError {
+func (e *GotunnelError) WithContext(key string, value any) *GotunnelError {
 	if e.Context == nil {
-		e.Context = make(map[string]interface{})
+		e.Context = make(map[string]any)
 	}
 	e.Context[key] = value
 	return e

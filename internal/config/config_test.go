@@ -57,7 +57,7 @@ logging:
 		err := os.WriteFile(configPath, []byte(configContent), 0644)
 		require.NoError(t, err)
 
-		source := &FileSource{Path: configPath, priority: 100}
+		source := NewFileSource(configPath, 100)
 		config, err := source.Load()
 		
 		require.NoError(t, err)
@@ -77,7 +77,7 @@ logging:
 	})
 
 	t.Run("non-existent file", func(t *testing.T) {
-		source := &FileSource{Path: "/non/existent/file.yaml", priority: 100}
+		source := NewFileSource("/non/existent/file.yaml", 100)
 		config, err := source.Load()
 		
 		assert.NoError(t, err)
@@ -91,7 +91,7 @@ logging:
 		err := os.WriteFile(configPath, []byte("invalid: yaml: content:"), 0644)
 		require.NoError(t, err)
 
-		source := &FileSource{Path: configPath, priority: 100}
+		source := NewFileSource(configPath, 100)
 		config, err := source.Load()
 		
 		assert.Error(t, err)
@@ -104,7 +104,7 @@ logging:
 	})
 
 	t.Run("empty path", func(t *testing.T) {
-		source := &FileSource{Path: "", priority: 100}
+		source := NewFileSource("", 100)
 		config, err := source.Load()
 		
 		assert.NoError(t, err)
@@ -247,8 +247,8 @@ proxy:
 
 			// Create manager and add sources
 		manager := NewManager()
-		manager.AddSource(&FileSource{Path: baseConfigPath, priority: 50})
-		manager.AddSource(&FileSource{Path: overrideConfigPath, priority: 100}) // Higher priority
+		manager.AddSource(NewFileSource(baseConfigPath, 50))
+		manager.AddSource(NewFileSource(overrideConfigPath, 100)) // Higher priority
 
 		config, err := manager.Load()
 		require.NoError(t, err)
