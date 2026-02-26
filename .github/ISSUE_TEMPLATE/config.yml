@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or Discussion
+    url: https://github.com/v1truv1us/gotunnel/discussions
+    about: Please use Discussions for questions
+  - name: Security Vulnerability
+    url: https://github.com/v1truv1us/gotunnel/security/advisories
+    about: Report security issues privately
