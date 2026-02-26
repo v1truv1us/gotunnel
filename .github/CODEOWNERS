@@ -1,0 +1,22 @@
+# Global fallback
+* @v1truv1us
+
+# CLI commands
+/cmd/ @v1truv1us
+
+# Core networking
+/internal/tunnel/ @v1truv1us
+/internal/proxy/ @v1truv1us
+
+# Configuration
+/configs/ @v1truv1us
+
+# CI/CD
+/.github/workflows/ @v1truv1us
+
+# Documentation
+/docs/ @v1truv1us
+*.md @v1truv1us
+
+# Security policy
+SECURITY.md @v1truv1us
