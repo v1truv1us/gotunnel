@@ -1,0 +1,37 @@
+name: Feature Request
+description: Suggest a new feature for gotunnel
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe your proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Any alternative solutions considered?
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Critical - blocking production use
+        - High - major improvement
+        - Medium - nice to have
+        - Low - minor enhancement
