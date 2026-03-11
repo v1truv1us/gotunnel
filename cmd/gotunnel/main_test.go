@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/johncferguson/gotunnel/internal/cert"
+	"github.com/johncferguson/gotunnel/internal/logging"
 	"github.com/johncferguson/gotunnel/internal/tunnel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,7 +76,9 @@ func setupTunnelManagerWithCleanup(t *testing.T) (*tunnel.Manager, func()) {
 	certManager := cert.New(tmpDir)
 
 	// Create tunnel manager with temp file for hosts backup
-	manager := tunnel.NewManager(certManager)
+	logger, err := logging.New(logging.DefaultConfig())
+	require.NoError(t, err)
+	manager := tunnel.NewManager(certManager, logger)
 	manager.SetHostsBackupDir(filepath.Join(tmpDir, "hosts.bak"))
 
 	return manager, func() {
@@ -85,10 +88,9 @@ func setupTunnelManagerWithCleanup(t *testing.T) (*tunnel.Manager, func()) {
 }
 
 func TestTunnelCreation(t *testing.T) {
-	// Remove the privilege check
-	// if os.Getuid() != 0 {
-	//     t.Skip("Skipping test - requires root privileges")
-	// }
+	if os.Getuid() != 0 {
+		t.Skip("Skipping test - requires root privileges")
+	}
 
 	// Create tunnel manager first
 	manager, cleanup := setupTunnelManagerWithCleanup(t)
@@ -229,7 +231,9 @@ func TestTunnelManagement(t *testing.T) {
 	certManager := cert.New(tempDir)
 
 	// Create tunnel manager with temp file for hosts backup
-	manager := tunnel.NewManager(certManager)
+	logger, err := logging.New(logging.DefaultConfig())
+	require.NoError(t, err)
+	manager := tunnel.NewManager(certManager, logger)
 	manager.SetHostsBackupDir(filepath.Join(tempDir, "hosts.bak"))
 
 	// Test tunnel management operations
@@ -300,7 +304,9 @@ func TestErrorHandling(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	certManager := cert.New(tempDir)
-	manager := tunnel.NewManager(certManager)
+	logger, err := logging.New(logging.DefaultConfig())
+	require.NoError(t, err)
+	manager := tunnel.NewManager(certManager, logger)
 	manager.SetHostsBackupDir(filepath.Join(tempDir, "hosts.bak"))
 
 	tests := []struct {

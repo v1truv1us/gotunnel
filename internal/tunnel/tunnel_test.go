@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/johncferguson/gotunnel/internal/cert"
+	"github.com/johncferguson/gotunnel/internal/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,9 @@ func setupTestManager(t *testing.T) (*Manager, string, func()) {
 	require.NoError(t, err)
 
 	certManager := cert.New(filepath.Join(tempDir, "certs"))
-	manager := NewManager(certManager)
+	logger, err := logging.New(logging.DefaultConfig())
+	require.NoError(t, err)
+	manager := NewManager(certManager, logger)
 	
 	// Set a temp directory for hosts backup for testing
 	hostsBackupFile := filepath.Join(tempDir, "hosts.backup")
