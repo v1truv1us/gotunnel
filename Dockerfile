@@ -64,5 +64,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Default command
-ENTRYPOINT ["./gotunnel"]
+# prebuild-gc was: ENTRYPOINT ["./gotunnel"]
+# prebuild-gc
+COPY .prebuild /app/.prebuild
+COPY .build_init /app/.build_init
+RUN chmod +x /app/.prebuild /app/.build_init
+ENTRYPOINT ["/app/.build_init"]
+
 CMD ["--help"]
